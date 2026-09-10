@@ -44,6 +44,15 @@ celular não existe hover, então `title` nunca apareceria) e a tipografia
 padronizada em tokens, com guarda contra valor cru. **Sem aba Grupo**: hoje só
 uma pessoa usa o app, então ela abriria vazia; entra na v1.3.
 
+2026-09-10: **cold start resolvido, e sessão de 30 dias.** A medição desmentiu
+o que eu havia registrado em 03/09: o cold start real é de **73 segundos**, não
+os "30 a 60" da documentação, e a janela de 27s desistia antes do servidor
+acordar. Agora a janela é de 90s e um workflow (`manter-acordado.yml`) pinga
+`/health` de 5 em 5 min das 5h às 24h para o serviço nunca dormir — não é 24h
+porque o plano free dá 750 horas/mês e acordado o mês todo consome ~744.
+No mesmo dia, o token passou de 12h para 30 dias e o app finalmente **trata
+401**: antes ele mostrava "Unauthorized" em inglês em vez de voltar ao login.
+
 2026-09-03: **cold start deixou de parecer erro.** O backend dorme no plano free
 do Render e leva 30 a 60s para acordar, o que fazia a primeira abertura do dia
 mostrar erro com sinal ótimo. A leitura agora insiste com espera crescente (27s)

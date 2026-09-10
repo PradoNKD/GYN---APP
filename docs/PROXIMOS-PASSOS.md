@@ -4,7 +4,7 @@ Atividades **em aberto**. Este documento existe pelo mesmo motivo do
 [HANDOFF](HANDOFF.md): vive no repositório para que um `git clone` entregue o
 contexto inteiro, sem depender de histórico de chat.
 
-Última atualização: 2026-09-03.
+Última atualização: 2026-09-10.
 
 Origem: análise de mercado de apps de academia (apps globais, mercado
 brasileiro e evidência de gamificação) cruzada com auditoria do código.
@@ -13,7 +13,71 @@ Documento visual completo:
 
 ---
 
-## Estado atual — onde paramos (2026-09-03)
+## Estado atual — onde paramos (2026-09-10)
+
+### Cold start resolvido, e uma correção de registro
+
+**Em 03/09 eu escrevi neste documento que o cold start estava tratado. Não
+estava.** A janela de nova tentativa somava 27s, calibrada pelos "30 a 60
+segundos" que a documentação do Render promete — e o teste que a guardava
+exigia 25s, repetindo o mesmo número errado e passando verde.
+
+Medido em 10/09, com o serviço dormindo havia 7 dias:
+
+| | |
+|---|---|
+| 1ª chamada (dormindo) | **73,1 s** até o primeiro byte |
+| 2ª chamada (acordado) | 0,86 s |
+
+O app desistia aos 27s — errava justamente no caso que a nova tentativa existe
+para resolver. **A lição é geral: número que vem de documentação de fornecedor
+entra no código como suposição, não como fato.** Medir custou um `curl -w
+'%{time_starttransfer}'`.
+
+Duas frentes. A janela foi para 90s e o teste passou a exigir os 73 medidos. E,
+o que de fato resolve, `.github/workflows/manter-acordado.yml`: chama `/health`
+de 5 em 5 minutos para nunca haver 15 min de silêncio.
+
+**Só das 5h às 24h (Brasília), de propósito.** O plano free dá 750 horas de
+instância por mês; acordado o mês inteiro consome ~744 — cabe, mas sem folga, e
+**estoura se houver qualquer outro serviço free na mesma conta Render**.
+Das 5h às 24h dá ~590 horas. O agendador do GitHub atrasa sob carga; se o
+serviço ainda dormir de vez em quando, a alternativa é um monitor externo
+(UptimeRobot, cron-job.org), que não depende da fila do GitHub.
+
+### Sessão: 30 dias, e o 401 finalmente tratado
+
+O token expirava em 12h e **ninguém tratava 401**. Na prática o app não voltava
+para o login: mostrava **"Unauthorized"**, em inglês, em vermelho, com um botão
+"Tentar de novo" que falharia para sempre. A única saída era descobrir sozinho
+o caminho Perfil → Sair.
+
+Agora são duas defesas. A camada de api avisa quando o servidor responde 401
+numa rota **que mandou crachá** — e só nesse caso: sem essa checagem, o 401 de
+"senha errada" faria a tela de login dizer "sua sessão expirou" para quem nunca
+esteve logado. E `tokenExpirado` lê o prazo no próprio token na abertura, para
+não sair pedindo dado com um crachá já vencido; **na dúvida ele responde "não
+expirou"**, porque um erro de leitura no cliente nunca pode expulsar quem está
+logado — quem decide é o servidor.
+
+O prazo foi de 12h para **30 dias**. Com 12h praticamente toda visita caía
+vencida, e digitar e-mail e senha antes de treinar é o atrito que faz desistir.
+Token longo aqui **não é acesso irrevogável**: o `validate` da JwtStrategy
+consulta o banco a cada requisição e recusa conta inativa, o que já está travado
+pelo teste "lanca UnauthorizedException quando a conta foi desativada". Se essa
+consulta sair um dia, o prazo tem de encolher junto.
+
+Suíte: **358 no frontend** (era 337), **144 unitários no backend**. Quatro
+mutações plantadas e mortas — a mais importante foi comparar `exp` em
+milissegundos em vez de segundos, que expulsaria todo mundo a cada abertura.
+
+No ar e verificado: bundle publicado com a janela de 90s e as mensagens novas,
+`/health` reportando `4b2803e`, e o ping disparado à mão devolvendo
+`GET /health -> 200`.
+
+---
+
+## Estado anterior (2026-09-03)
 
 ### Cold start e falha de rede — ENTREGUE
 
