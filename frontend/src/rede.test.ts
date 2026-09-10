@@ -130,14 +130,15 @@ describe("comRetentativa", () => {
     expect(esperas).toEqual([10, 20]);
   });
 
-  it("o tempo total das tentativas cobre o cold start do Render", async () => {
-    // O plano free leva 30 a 60s para acordar. Se a soma das esperas fosse
-    // menor que isso, a nova tentativa desistiria justamente no caso que ela
-    // existe para resolver.
+  it("o tempo total das tentativas cobre o cold start MEDIDO do Render", async () => {
+    // 73 segundos, medidos em 2026-09-10 com o servico dormindo havia 7 dias.
+    // A primeira versao deste teste exigia 25s, numero tirado dos "30 a 60s"
+    // que a documentacao do Render promete -- e passava verde enquanto a janela
+    // real desistia antes de o servidor acordar. O piso agora e a medicao.
     const { ATRASOS_PADRAO } = await import("./rede");
     const total = ATRASOS_PADRAO.reduce((a, b) => a + b, 0);
 
-    expect(total).toBeGreaterThanOrEqual(25000);
+    expect(total).toBeGreaterThanOrEqual(73000);
   });
 
   it("o aviso de demora chega antes de a pessoa achar que travou", () => {

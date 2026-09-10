@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { registrarAvisoDeExpiracao } from "./sessao";
 import {
   alternarTreino,
   ApiError,
@@ -274,5 +275,62 @@ describe("api", () => {
       await expect(promessa).rejects.toBeInstanceOf(ErroDeRede);
       await expect(promessa).rejects.not.toBeInstanceOf(ApiError);
     });
+  });
+});
+
+describe("aviso de sessao expirada", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let avisado: ReturnType<typeof vi.fn<() => void>>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    avisado = vi.fn<() => void>();
+    registrarAvisoDeExpiracao(avisado);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    registrarAvisoDeExpiracao(null);
+  });
+
+  it("401 numa rota que mandou cracha avisa que a sessao caiu", async () => {
+    fetchMock.mockResolvedValue(respostaErro({ message: "Unauthorized" }, 401));
+
+    await buscarSessoes("token-vencido").catch(() => {});
+
+    expect(avisado).toHaveBeenCalledTimes(1);
+  });
+
+  it("401 do LOGIN nao avisa: nao havia sessao para expirar", async () => {
+    // Este e o caso que quebraria feio. "E-mail ou senha invalidos" volta 401,
+    // e sem a checagem de cracha a tela de login passaria a exibir "sua sessao
+    // expirou" para quem so errou a senha -- e nunca esteve logado.
+    fetchMock.mockResolvedValue(
+      respostaErro({ message: "E-mail ou senha invalidos" }, 401),
+    );
+
+    await entrar({ email: "f@example.com", password: "errada" }).catch(() => {});
+
+    expect(avisado).not.toHaveBeenCalled();
+  });
+
+  it("outros erros com cracha nao mexem na sessao", async () => {
+    // Derrubar a sessao por um 400 ou um 503 expulsaria a pessoa por um
+    // problema que nao tem nada a ver com o cracha dela.
+    for (const status of [400, 403, 500, 503]) {
+      fetchMock.mockResolvedValue(respostaErro({ message: "x" }, status));
+      await buscarSessoes("token-bom").catch(() => {});
+    }
+
+    expect(avisado).not.toHaveBeenCalled();
+  });
+
+  it("resposta boa nao avisa nada", async () => {
+    fetchMock.mockResolvedValue(respostaOk({ itens: [] }));
+
+    await buscarSessoes("token-bom");
+
+    expect(avisado).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AuthProvider, useAuth } from "./AuthContext";
+import { avisarSessaoExpirada } from "./sessao";
 
 vi.mock("./api", async () => {
   const real = await vi.importActual<typeof import("./api")>("./api");
@@ -17,6 +18,15 @@ const { entrar, registrar, ApiError } = await import("./api");
 
 const STORAGE_KEY = "gym-monkey.auth";
 
+/** JWT de mentira: so o payload importa para o prazo. */
+function tokenQueVence(emSegundosAPartirDeAgora: number): string {
+  const exp = Math.floor(Date.now() / 1000) + emSegundosAPartirDeAgora;
+  const meio = btoa(JSON.stringify({ sub: "user-1", exp }))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+  return `cabecalho.${meio}.assinatura`;
+}
+
 const usuario = {
   id: "user-1",
   name: "Fulano",
@@ -25,7 +35,7 @@ const usuario = {
 };
 
 function Sonda() {
-  const { token, user, login, cadastrar, logout } = useAuth();
+  const { token, user, login, cadastrar, logout, sessaoExpirada } = useAuth();
   const [erro, setErro] = useState<string | null>(null);
 
   // O AuthScreen real envolve login/cadastrar em try/catch; a sonda faz o
@@ -43,6 +53,7 @@ function Sonda() {
       <span data-testid="token">{token ?? "sem-token"}</span>
       <span data-testid="user">{user?.name ?? "sem-user"}</span>
       <span data-testid="erro">{erro ?? "sem-erro"}</span>
+      <span data-testid="expirada">{sessaoExpirada ? "sim" : "nao"}</span>
       <button onClick={capturando(() => login("fulano@example.com", "senha1234"))}>
         entrar
       </button>
@@ -195,6 +206,82 @@ describe("AuthContext", () => {
       );
 
       spy.mockRestore();
+    });
+  });
+  describe("sessao expirada", () => {
+    it("token vencido no localStorage nao vira estado logado", () => {
+      // Sem isto o app abriria "logado", sairia pedindo dado e so descobriria
+      // a verdade pelo 401 -- com o servidor dormindo, mais de um minuto de
+      // espera para chegar numa tela de login que podia aparecer na hora.
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ token: tokenQueVence(-60), user: usuario }),
+      );
+
+      renderizar();
+
+      expect(screen.getByTestId("token")).toHaveTextContent("sem-token");
+      // E limpa o que nao serve mais: deixar o cracha vencido guardado so
+      // adiaria a mesma descoberta para a proxima abertura.
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+
+    it("token ainda valido no localStorage e restaurado normalmente", () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ token: tokenQueVence(3600), user: usuario }),
+      );
+
+      renderizar();
+
+      expect(screen.getByTestId("user")).toHaveTextContent("Fulano");
+    });
+
+    it("401 do servidor derruba a sessao e diz por que", async () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ token: tokenQueVence(3600), user: usuario }),
+      );
+      renderizar();
+      expect(screen.getByTestId("user")).toHaveTextContent("Fulano");
+
+      // O que a camada de api dispara ao receber 401 numa rota com cracha.
+      act(() => avisarSessaoExpirada());
+
+      expect(screen.getByTestId("token")).toHaveTextContent("sem-token");
+      expect(screen.getByTestId("expirada")).toHaveTextContent("sim");
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+
+    it("sair por vontade propria NAO conta como sessao expirada", async () => {
+      // Dizer "sua sessao expirou" para quem acabou de tocar em Sair inverte a
+      // causa: sugere que o app derrubou a pessoa, quando foi ela que saiu.
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ token: tokenQueVence(3600), user: usuario }),
+      );
+      renderizar();
+
+      await userEvent.click(screen.getByText("sair"));
+
+      expect(screen.getByTestId("token")).toHaveTextContent("sem-token");
+      expect(screen.getByTestId("expirada")).toHaveTextContent("nao");
+    });
+
+    it("entrar de novo apaga o aviso de expirada", async () => {
+      vi.mocked(entrar).mockResolvedValue({
+        accessToken: "token-novo",
+        user: usuario,
+      });
+      renderizar();
+      act(() => avisarSessaoExpirada());
+      expect(screen.getByTestId("expirada")).toHaveTextContent("sim");
+
+      await userEvent.click(screen.getByText("entrar"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("expirada")).toHaveTextContent("nao"),
+      );
     });
   });
 });

@@ -1,4 +1,5 @@
 import { ErroDeRede } from "./rede";
+import { avisarSessaoExpirada } from "./sessao";
 import type {
   AuthResponse,
   CatalogoDeConquistas,
@@ -61,6 +62,15 @@ async function request<T>(
   }
 
   if (!response.ok) {
+    // 401 numa rota que mandou cracha = o cracha foi recusado, e a sessao caiu.
+    //
+    // O `token &&` nao e detalhe: sem ele, o 401 de "e-mail ou senha
+    // invalidos" -- que vem do proprio login, sem cracha nenhum -- dispararia
+    // "sua sessao expirou" para quem nunca esteve logado.
+    if (response.status === 401 && token) {
+      avisarSessaoExpirada();
+    }
+
     const body = await response.json().catch(() => null);
     const message = body?.message ?? "Erro inesperado ao falar com o servidor";
     throw new ApiError(

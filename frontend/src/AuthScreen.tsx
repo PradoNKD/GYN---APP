@@ -8,7 +8,7 @@ export function AuthScreen() {
   // vai entrar o fundo com o logo do app.
   useTemaEscuroFixo();
 
-  const { login, cadastrar } = useAuth();
+  const { login, cadastrar, sessaoExpirada } = useAuth();
   const [modo, setModo] = useState<"login" | "cadastro">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -79,6 +79,17 @@ export function AuthScreen() {
         />
 
         {modo === "cadastro" && <p className="auth-dica">Minimo 8 caracteres, com letra e numero</p>}
+
+        {/* So aparece quando a sessao caiu sozinha, e some assim que a pessoa
+            tenta entrar. Sem esta frase o app volta para o login do nada, e
+            parecer que ele "esqueceu" quem voce e assusta mais do que dizer o
+            que houve. Cede a vez para qualquer outro aviso ou erro da tela --
+            esses sao sobre o que a pessoa acabou de fazer. */}
+        {sessaoExpirada && !aviso && !erro && (
+          <p className="auth-aviso">
+            Sua sessao expirou por seguranca. Entre de novo para continuar.
+          </p>
+        )}
 
         {aviso && <p className="auth-aviso">{aviso}</p>}
         {erro && <p className="auth-erro">{erro}</p>}

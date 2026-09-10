@@ -1,0 +1,69 @@
+name: Manter o backend acordado
+
+# O backend roda no plano free do Render, que derruba o servico depois de ~15
+# min sem trafego. Medido em 2026-09-10, com o servico dormindo havia 7 dias, a
+# primeira chamada levou **73 segundos** para o primeiro byte; ja acordado, a
+# mesma chamada leva 0,86s. Esperar mais de um minuto na porta da academia e o
+# que faz desistir de usar o app.
+#
+# Este workflow chama /health de tempos em tempos para que nunca haja 15 min de
+# silencio. O repositorio e publico, entao minutos de Actions sao gratuitos.
+#
+# **Por que nao 24 horas por dia.** O plano free do Render da 750 horas de
+# instancia por mes. Acordado o mes inteiro consome ~744 -- cabe, mas sem folga
+# nenhuma, e estoura se houver qualquer outro servico free na mesma conta.
+# Pingando so das 5h as 24h (horario de Brasilia) o consumo cai para ~590
+# horas/mes, com margem de sobra. Ninguem faz check-in de treino as 3 da manha.
+#
+# **Limitacao conhecida, dita em voz alta:** o agendador do GitHub Actions nao
+# tem hora certa. Ele atrasa sob carga, as vezes bastante, e desliga schedules
+# em repositorio sem commit ha 60 dias. O intervalo de 5 min existe para
+# aguentar atraso: mesmo 10 min tarde, ainda nao completa os 15 min de silencio.
+# Se ainda assim o servidor dormir de vez em quando, a alternativa mais
+# confiavel e um monitor externo (UptimeRobot, cron-job.org), que exige criar
+# conta mas nao depende da fila do GitHub.
+
+on:
+  schedule:
+    # Cron do GitHub e sempre em UTC. Brasilia = UTC-3.
+    - cron: '*/5 8-23 * * *' # 05:00 - 20:59 em Brasilia
+    - cron: '*/5 0-2 * * *' # 21:00 - 23:59 em Brasilia
+  workflow_dispatch: {} # permite testar na hora, pela aba Actions
+
+# Um ping por vez. Se um atrasar e o proximo chegar junto, nao adianta empilhar.
+concurrency:
+  group: manter-acordado
+  cancel-in-progress: false
+
+# So faz uma requisicao HTTP para fora: nao precisa ler o repositorio, nao
+# publica nada. Sem permissao alguma, entao.
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    # Um ping preso nao pode segurar um runner por 6 horas (o padrao).
+    timeout-minutes: 5
+    steps:
+      - name: Acorda o backend
+        env:
+          API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "::error::A variavel de repositorio VITE_API_URL nao esta definida."
+            exit 1
+          fi
+
+          # --max-time 180: se o servico estiver dormindo, ESTA chamada e que
+          # paga os ~73s de espera -- e e para isso que ela existe. Desistir
+          # antes deixaria o servidor dormindo justamente quando o ping falhou.
+          codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 180 "$API_URL/health")
+
+          echo "GET $API_URL/health -> $codigo"
+
+          # Falhar alto de proposito: um ping que erra em silencio faz acreditar
+          # que o servidor esta acordado quando ele nao esta.
+          if [ "$codigo" != "200" ]; then
+            echo "::error::/health respondeu $codigo, esperado 200."
+            exit 1
+          fi

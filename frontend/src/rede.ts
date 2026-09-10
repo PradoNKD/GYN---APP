@@ -29,8 +29,21 @@ export class ErroDeRede extends Error {}
  */
 export const STATUS_RETENTAVEIS = new Set([502, 503, 504]);
 
-/** Espera entre as tentativas. Cresce para nao martelar um servidor que sobe. */
-export const ATRASOS_PADRAO = [1000, 2000, 4000, 8000, 12000];
+/**
+ * Espera entre as tentativas. Cresce para nao martelar um servidor que sobe.
+ *
+ * A soma (90s) veio de **medicao, nao da documentacao**. A primeira versao
+ * somava 27s, calibrada pelos "30 a 60 segundos" que o Render publica. Medido
+ * em 2026-09-10, com o servico dormindo havia 7 dias, o primeiro byte levou
+ * **73 segundos** -- ou seja, a janela desistia bem antes de o servidor
+ * acordar, e o app mostrava erro justamente no caso que a nova tentativa existe
+ * para resolver. Ja acordado, a mesma chamada leva 0,86s.
+ *
+ * 90s da margem sobre os 73 medidos sem esticar demais a espera de quem esta
+ * com um problema de verdade. Se um dia a medicao subir de novo, o numero certo
+ * e o medido -- nao o que a documentacao promete.
+ */
+export const ATRASOS_PADRAO = [1000, 2000, 4000, 8000, 15000, 20000, 20000, 20000];
 
 /** Depois de quanto tempo vale avisar que o servidor esta acordando. */
 export const AVISO_DEMORA_MS = 4000;
